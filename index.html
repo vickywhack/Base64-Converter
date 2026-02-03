@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Base64 PDF & ZPL Label Viewer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <style>
+        :root {
+            --bg-gradient: linear-gradient(135deg, #eef2ff, #f8fafc);
+            --card-bg: #ffffff;
+            --border: #e5e7eb;
+            --primary: #4f46e5;
+            --primary-hover: #4338ca;
+            --text: #111827;
+            --muted: #6b7280;
+            --radius: 12px;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 32px;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+            background: var(--bg-gradient);
+            color: var(--text);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 30px;
+            margin-bottom: 28px;
+        }
+
+        h2 {
+            font-size: 20px;
+            margin: 0 0 16px 0;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 24px;
+            margin-bottom: 36px;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 170px;
+            resize: vertical;
+            padding: 14px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 13px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            margin-bottom: 14px;
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        select {
+            padding: 7px 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: #fff;
+        }
+
+        .label {
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        button {
+            padding: 9px 18px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-hover);
+        }
+
+        .btn-secondary {
+            background: #eef2ff;
+            color: var(--primary);
+        }
+
+        /* ---------- Auto-shrink viewer ---------- */
+        .viewer {
+            width: 100%;
+            height: 540px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: #f9fafb;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .viewer iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        .empty {
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        @media (max-width: 900px) {
+            body {
+                padding: 16px;
+            }
+
+            .viewer {
+                height: 420px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Base64 Converter</h1>
+
+        <!-- ================= Base64 → PDF ================= -->
+        <div class="card">
+            <h2>Base64 → PDF</h2>
+
+            <textarea id="pdfBase64" placeholder="Paste Base64-encoded PDF here">
+      </textarea>
+
+            <div class="controls">
+                <button class="btn-primary" onclick="viewPdf()">View PDF</button>
+                <button class="btn-secondary" onclick="downloadPdf()">Download PDF</button>
+            </div>
+
+            <div class="viewer">
+                <iframe id="pdfViewer"></iframe>
+                <div id="pdfEmpty" class="empty">PDF preview will appear here</div>
+            </div>
+        </div>
+
+        <!-- ================= Base64 → ZPL → PDF ================= -->
+        <div class="card">
+            <h2>Base64 → ZPL → PDF (Label)</h2>
+
+            <textarea id="zplBase64" placeholder="Paste Base64-encoded ZPL here">
+      </textarea>
+
+            <div class="controls">
+                <span class="label">Label size</span>
+                <select id="labelSize">
+                    <option value="4x6">4 × 6 in</option>
+                    <option value="4x8">4 × 8 in</option>
+                    <option value="6x4">6 × 4 in</option>
+                </select>
+
+                <span class="label">DPI</span>
+                <select id="dpi">
+                    <option value="8">203 dpi</option>
+                    <option value="12">300 dpi</option>
+                </select>
+
+                <button class="btn-primary" onclick="viewZplPdf()">View Label PDF</button>
+                <button class="btn-secondary" onclick="downloadZplPdf()">Download PDF</button>
+            </div>
+
+            <div class="viewer">
+                <iframe id="zplPdfViewer"></iframe>
+                <div id="zplEmpty" class="empty">Label preview will appear here</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function cleanBase64(input) {
+            return input.replace(/^data:.*;base64,/, "").replace(/\s/g, "");
+        }
+
+        function showViewer(iframeId, emptyId, url) {
+            const iframe = document.getElementById(iframeId);
+            const empty = document.getElementById(emptyId);
+
+            iframe.src = url + "#zoom=page-fit";
+            empty.style.display = "none";
+        }
+
+        /* ---------- Base64 → PDF ---------- */
+        function base64ToPdfBlob(base64) {
+            const binary = atob(base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return new Blob([bytes], { type: "application/pdf" });
+        }
+
+        function viewPdf() {
+            const base64 = cleanBase64(document.getElementById("pdfBase64").value);
+            if (!base64) return alert("Base64 is empty");
+
+            const blob = base64ToPdfBlob(base64);
+            const url = URL.createObjectURL(blob);
+            showViewer("pdfViewer", "pdfEmpty", url);
+        }
+
+        function downloadPdf() {
+            const base64 = cleanBase64(document.getElementById("pdfBase64").value);
+            if (!base64) return alert("Base64 is empty");
+
+            const blob = base64ToPdfBlob(base64);
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "file.pdf";
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        /* ---------- Base64 → ZPL → PDF ---------- */
+        function renderZplPdf(callback) {
+            const base64 = cleanBase64(document.getElementById("zplBase64").value);
+            if (!base64) return alert("Base64 is empty");
+
+            const zpl = atob(base64);
+            const size = document.getElementById("labelSize").value;
+            const dpi = document.getElementById("dpi").value;
+
+            const url =
+                `https://api.labelary.com/v1/printers/${dpi}dpmm/labels/${size}/0/`;
+
+            fetch(url, {
+                method: "POST",
+                headers: {
+                    "Accept": "application/pdf",
+                    "Content-Type": "application/x-www-form-urlencoded"
+                },
+                body: zpl
+            })
+                .then(res => {
+                    if (!res.ok) throw new Error("Label render failed");
+                    return res.blob();
+                })
+                .then(blob => callback(blob))
+                .catch(err => alert(err.message));
+        }
+
+        function viewZplPdf() {
+            renderZplPdf(blob => {
+                const url = URL.createObjectURL(blob);
+                showViewer("zplPdfViewer", "zplEmpty", url);
+            });
+        }
+
+        function downloadZplPdf() {
+            renderZplPdf(blob => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "label.pdf";
+                a.click();
+                URL.revokeObjectURL(url);
+            });
+        }
+    </script>
+</body>
+
+</html>
